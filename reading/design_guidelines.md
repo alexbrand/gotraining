@@ -1,10 +1,32 @@
 ## Design Guidelines
 
-These are a set of design guidelines for data, interfaces, composition and packages. Please consider these principles when designing your own software.
+Performance and productivity both matter, but in the past you couldn’t have both. You needed to choose one over the other. We naturally gravitated to productivity, with the idea or hope that the hardware would resolve our performance problems for free. This movement towards productivity has resulted in the design of programming languages that produce sluggish software that is out pacing the hardware’s ability to make them faster.
 
-***"The most amazing achievement of the computer software industry is its continuing cancellation of the steady and staggering gains made by the computer hardware industry." - Henry Petroski***
+By following Go’s idioms and a few guidelines, we can write code that can be reasoned about by anyone who looks at it. We can write software that simplifies, minimizes and reduces the amount of code we need to solve the problems we are working on. We don’t have to choose productivity over performance or performance over productivity anymore. We can have both.
 
-#### Bottom Line
+#### Quotes
+
+*"The hope is that the progress in hardware will cure all software ills. However, a critical observer may observe that software manages to outgrow hardware in size and sluggishness. Other observers had noted this for some time before, indeed the trend was becoming obvious as early as 1987." - Niklaus Wirth*
+
+*"The most amazing achievement of the computer software industry is its continuing cancellation of the steady and staggering gains made by the computer hardware industry." - Henry Petroski*
+
+*"The hardware folks will not put more cores into their hardware if the software isn’t going to use them, so, it is this balancing act of each other staring at each other, and we are hoping that Go is going to break through on the software side.” - Rick Hudson*
+
+*"C is the best balance I've ever seen between power and expressiveness. You can do almost anything you want to do by programming fairly straightforwardly and you will have a very good mental model of what's going to happen on the machine; you can predict reasonably well how quickly it's going to run, you understand what's going on .... - Brian Kernighan*
+
+#### Somewhere Along The Line
+
+* We became impressed with programs that contain large amounts of code.
+* We strived to create large abstractions in our code base.
+* We forgot that the hardware is the platform.
+* We lost the understanding that every decision comes with a cost.
+
+#### These Days Are Gone
+
+* We can throw more hardware at the problem.
+* We can throw more developers at the problem.
+
+#### Remember
 
 The **compiler** is a tool and it's not all knowing or perfect.  
 You need to work with it and help it.
@@ -58,6 +80,9 @@ _With help from [Sandi Metz](https://twitter.com/sandimetz). and Rob Pike_
 * Interfaces encourage design by composition.
 * Interfaces enable and enforce clean divisions between components.
     * The standardization of interfaces can set clear and consistent expectations.
+* Interfaces allow you to group concrete types by what they do.
+    * Don't group types by a common DNA but by a common behavior.
+    * Everyone can work together when we focus on what we do and not what we are.
 * Interfaces provide the highest form of decoupling when the concrete types used to implement them can remain opaque.
     * Decoupling means reducing the amount of intimate knowledge code must have about concrete types.
     * When dependencies are weakened and the coupling loosened, cascading changes are minimized and stability is improved.
@@ -88,13 +113,46 @@ _With help from [Sarah Mei](https://twitter.com/sarahmei) and [Burcu Dogan](http
 * Recognizing and minimizing cascading changes across different packages is a way to architect adaptability and stability in your software.
 * When dependencies between packages are weakened and the coupling loosened, cascading changes are minimized and stability is improved.
 
-#### Code Reviews
+#### Concurrency
 
-I teach a lot about the things I look for in code reviews. I am slowly attempting to document this.
+Concurrency is about managing a lot of things at once. Parallelism is about doing a lot of things at once. These are completly two different ideas. Managing concurrency is a two way street between the runtime and you. You are responsible for managing three things in your concurrent software:
 
-* Try to use functions over methods when it is practical. Functions allow for better readability and reusability because all the input is passed in and the output is returned out. No information is lost or abstracted.
-* Eliminate the use of the else statements when it is practical. Do not attempt to push code paths to the end of a function. Keep your positive path code in the first tabbed position and use the if statement to process negative path. Return from the function as part of error handling.
-* Don't start off with pointer variables if it can be avoided. It is easier to work with variables that represent a value, even if that value is going to escape to the heap. The use of the & operator can go a long way to maintaining readability in your code.
-* Use the keyword var to represent the declaration of a variable that is being set to its zero value. This helps with readability and can provide the basis for developing a consistent set of rules around variable declarations. One of Go's biggest warts is there are too many ways to declare and create variables.
+* Your software must start up and shutdown with integrity.
+    * You are now allowed to create a goroutine unless you know when and how they terminate.
+    * All goroutines must terminate before the application shuts down.
+    * Anything less is an integrity issue that must be resolved.
+    * This will help to identify race conditions.
+* You must monitor all the points of potential back pressure in your application.
+    * Back pressure exists when goroutines are blocked waiting on other goroutines.
+    * A little bit of back pressure is good, a large amount of back pressure is bad.
+    * A large amount of back pressure can cause your application to implode or stall.
+    * Know what will happen when any goroutine can block on a channel operation, mutes or atomic instruction.
+* Timeouts, Timeout, Timeouts!
+    * Timeouts are how you reduce back pressure in your application. 
+    * No request or task is allowed to take forever.
+    * There is no infinity in processing work.
+    * The `net` package provides the ability to set timeouts.
+    * The `select` statement provides the ability to apply timeouts.
+    * The `context` package has good support for timeout logic.    
 
+#### Channels
 
+It's about keeping the data moving between goroutines with the least amount of risk and with greatest amount of integrity and predictability. This is a game of trade-offs that can't be isolated to one data flow but all the data flows in the system. You must focus on what happens when things are going bad, not when things are going well.
+
+* Use channels to orchestrate goroutines, not to synchronize access to shared state.
+* Don't use a channel as a queue, they are not queues, they provide guarantees for data delivery. 
+* An unbuffered channel provides a 100% guarantee that a piece of data has passed between two goroutines.
+	* We take the benefit of the 100% guarantee for the cost of higher latency.
+	* The 100% guarantee provides the highest level of integrity and predictability we can achieve.
+* A buffered channel provides no guarantee that a piece of data has passed between two goroutines.
+	* We take the benefit of reducing latency for the cost of losing the 100% guarantee.
+	* The larger the buffer, the larger the risk, because the guarantee becomes less and less.
+	* The risks are:
+		* Parts of the application can keep running when problems occur because it takes longer to detect problems.
+		* More data is accepted into the system and back pressure is greater when problems occur.
+		* The larger the back pressure, the longer it takes (latency) to clear when problems are corrected.
+* Reducing latency towards zero does not mean better throughput.
+	* Find the smallest buffer size to minimize the risk and keep the data moving.
+	* Use a buffer of one when the throughput is good enough. Question anything larger and measure.
+	* A buffer of 10 can provide the same or close throughput as a buffer of 100.
+		* This can be true even if the smaller buffer creates larger latencies. 
